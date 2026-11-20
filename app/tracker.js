@@ -1,58 +1,88 @@
-// Progress store: the earned set lives in localStorage, and moves as a JSON file
-// on export and import. Nothing here touches the network.
-export const PROGRESS_KEY = 'gta6-trophy-guide-progress-v1';
-export const SPOILER_KEY = 'gta6-trophy-guide-spoilers-v1';
+// tracker.js — saved checklist progress in localStorage, plus export / import.
+// Storage key is versioned so a future format change never corrupts an old save.
+export const STORAGE_KEY = 'leonida-legend-progress-v1';
 
-export function loadEarned() {
+export function loadProgress() {
   try {
-    const raw = localStorage.getItem(PROGRESS_KEY);
-    if (!raw) return new Set();
-    const ids = JSON.parse(raw);
-    if (!Array.isArray(ids)) return new Set();
-    return new Set(ids.filter((n) => Number.isInteger(n) && n >= 1 && n <= 55));
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const earned = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (value === true && /^\d+$/.test(key)) earned[key] = true;
+    }
+    return earned;
   } catch {
-    return new Set();
+    return {};
   }
 }
 
-export function saveEarned(earned) {
-  localStorage.setItem(PROGRESS_KEY, JSON.stringify([...earned].sort((a, b) => a - b)));
-}
-
-export function loadSpoilersHidden() {
-  // Spoilers are hidden by default; the toggle remembers the reader's choice.
+export function saveProgress(earned) {
   try {
-    const raw = localStorage.getItem(SPOILER_KEY);
-    return raw === null ? true : raw === '1';
-  } catch {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(earned));
     return true;
-  }
-}
-
-export function saveSpoilersHidden(hidden) {
-  try {
-    localStorage.setItem(SPOILER_KEY, hidden ? '1' : '0');
   } catch {
-    // Private mode or blocked storage: the toggle still works for this visit.
+    return false;
   }
 }
 
-export function downloadProgress(earned) {
-  const payload = { app: 'leonida-legend-gta6-trophy-guide', exportedAt: new Date().toISOString(), earned: [...earned].sort((a, b) => a - b) };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = 'gta6-trophy-progress.json';
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+export function isEarned(earned, trophyId) {
+  return earned[String(trophyId)] === true;
 }
 
-export async function readProgressFile(file) {
-  const text = await file.text();
-  const data = JSON.parse(text);
-  const ids = Array.isArray(data) ? data : data.earned;
-  if (!Array.isArray(ids)) throw new Error('That file has no earned list in it.');
-  const clean = ids.filter((n) => Number.isInteger(n) && n >= 1 && n <= 55);
-  if (clean.length === 0 && ids.length > 0) throw new Error('That file has no trophy ids between 1 and 55.');
-  return new Set(clean);
+export function toggleEarned(earned, trophyId) {
+  const next = { ...earned };
+  if (next[String(trophyId)]) delete next[String(trophyId)];
+  else next[String(trophyId)] = true;
+  return next;
+}
+
+export function countEarned(earned, trophies) {
+  return trophies.filter((t) => isEarned(earned, t.id)).length;
+}
+
+export function countEarnedByGrade(earned, trophies) {
+  const counts = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
+  for (const t of trophies) if (isEarned(earned, t.id)) counts[t.grade] += 1;
+  return counts;
+}
+
+// Serialises progress for download: a small JSON file the user can keep or share.
+export function exportProgress(earned) {
+  return JSON.stringify(
+    { app: 'leonida-legend', version: 1, exportedAt: new Date().toISOString(), earned: Object.keys(earned).map(Number).sort((a, b) => a - b) },
+    null,
+    2,
+  );
+}
+
+// Parses an imported file. Accepts our own export shape and a plain {id: true} map.
+export function importProgress(text) {
+  const parsed = JSON.parse(text);
+  if (Array.isArray(parsed)) return fromIdList(parsed);
+  if (parsed && Array.isArray(parsed.earned)) return fromIdList(parsed.earned);
+  if (parsed && typeof parsed === 'object') return fromIdList(Object.entries(parsed).filter(([, v]) => v === true).map(([k]) => Number(k)));
+  throw new Error('Unrecognised progress file');
+}
+
+function fromIdList(ids) {
+  const earned = {};
+  for (const id of ids) {
+    const n = Number(id);
+    if (Number.isInteger(n) && n >= 1 && n <= 55) earned[String(n)] = true;
+  }
+  return earned;
+}
+
+export function downloadFile(filename, text) {
+  const blob = new Blob([text], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }

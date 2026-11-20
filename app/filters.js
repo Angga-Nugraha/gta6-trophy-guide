@@ -1,48 +1,46 @@
-// Filter rules for the trophy list: kind chips, grade, earned state and search.
-// The "missable" chip shows every trophy whose missable flag is not "no":
-// Positive Mental Attitude (potentially missable) and Bad Luck, I Guess
-// (method unknown, so missability cannot be judged). "Activities" covers the
-// activity and stunt kinds; there is no online kind in this list at all.
+// filters.js — the checklist's search / kind / grade / earned filters and the
+// spoiler toggle. A trophy is shown only when every active filter passes it.
 export const KIND_LABELS = {
-  all: 'All 55',
   story: 'Story',
-  missable: 'Missable',
-  collectible: 'Collectibles',
-  activity: 'Activities',
-  side: 'Side quests',
-  misc: 'Misc & crime',
+  collectible: 'Collectible',
+  activity: 'Activity',
+  side: 'Side quest',
+  misc: 'Misc',
 };
 
-export function kindMatches(trophy, kind) {
-  if (kind === 'all') return true;
-  if (kind === 'missable') return trophy.missable !== 'no';
-  if (kind === 'activity') return trophy.kind === 'activity' || trophy.kind === 'stunt';
-  return trophy.kind === kind;
+export function defaultFilterState() {
+  return { query: '', kind: 'all', grade: 'all', earned: 'all', hideSpoilers: true };
 }
 
-export function trophyMatches(trophy, state, earned) {
-  if (!kindMatches(trophy, state.kind)) return false;
+export function trophyMatchesFilter(trophy, state, earned) {
+  if (state.kind === 'missable') {
+    if (!trophy.missable) return false;
+  } else if (state.kind !== 'all' && trophy.kind !== state.kind) {
+    return false;
+  }
   if (state.grade !== 'all' && trophy.grade !== state.grade) return false;
-  if (state.earned === 'earned' && !earned.has(trophy.id)) return false;
-  if (state.earned === 'todo' && earned.has(trophy.id)) return false;
+  const hasEarned = earned[String(trophy.id)] === true;
+  if (state.earned === 'earned' && !hasEarned) return false;
+  if (state.earned === 'unearned' && hasEarned) return false;
   if (state.query) {
-    const hay = `${trophy.name} ${trophy.description} ${trophy.guide}`.toLowerCase();
-    if (!hay.includes(state.query)) return false;
+    const haystack = [trophy.displayName || trophy.name, trophy.name, trophy.description, trophy.guide, trophy.kind, trophy.grade]
+      .join(' ')
+      .toLowerCase();
+    if (!haystack.includes(state.query.toLowerCase())) return false;
   }
   return true;
 }
 
-export function isSpoilerMasked(trophy, spoilersHidden, earned) {
-  return spoilersHidden && trophy.kind === 'story' && !earned.has(trophy.id);
+export function applyFilters(trophies, state, earned) {
+  return trophies.filter((t) => trophyMatchesFilter(t, state, earned));
 }
 
-export function describeFilter(state, shown, total) {
-  const bits = [];
-  if (state.kind !== 'all') bits.push(KIND_LABELS[state.kind]);
-  if (state.grade !== 'all') bits.push(state.grade);
-  if (state.earned === 'todo') bits.push('not earned yet');
-  if (state.earned === 'earned') bits.push('earned only');
-  if (state.query) bits.push(`matching "${state.query}"`);
-  const what = bits.length ? bits.join(' · ') : 'all trophies';
-  return `Showing ${shown} of ${total} — ${what}.`;
+// Story trophies (the 12 hidden story ones) are spoilers until earned.
+// While the toggle is on, their name and description render masked in the list.
+export function isSpoilerMasked(trophy, state, earned) {
+  return state.hideSpoilers && trophy.kind === 'story' && trophy.hidden && earned[String(trophy.id)] !== true;
+}
+
+export function spoilerLabel(trophy) {
+  return `Hidden story trophy #${trophy.id} — earn it in-game to reveal`;
 }

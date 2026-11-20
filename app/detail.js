@@ -1,115 +1,88 @@
-// Detail panel: one trophy's official text, its guide in our own words, the
-// method's confidence, its named sources as links, and its missable warning.
-// Links open only when the reader follows them; the app fetches nothing.
-import { isSpoilerMasked } from './filters.js';
+// detail.js — the per-trophy guide panel: official name / description / grade,
+// the guide in this entry's own words, its named sources, and the honesty badge
+// (confirmed / reported / disputed / unconfirmed) for methods the guides disagree on.
+import { isEarned } from './tracker.js';
 
-const METHOD_LABELS = {
-  reported: 'Method reported, not confirmed',
-  disputed: 'Method disputed between guides',
-  unconfirmed: 'Method unconfirmed',
+const STATUS_LABELS = {
+  confirmed: 'Confirmed — the guides agree on this method',
+  reported: 'Reported method — one guide only, not confirmed',
+  disputed: 'Disputed method — the guides disagree',
+  unconfirmed: 'Method unconfirmed — no reliable method exists yet',
 };
 
-export function renderDetail(panel, trophy, earned, spoilersHidden, onToggleEarned) {
-  panel.replaceChildren();
+const SOURCE_URLS = {
+  PowerPyx: 'https://www.powerpyx.com/gta-6-grand-theft-auto-vi-trophy-guide-roadmap/',
+  GTABase: 'https://www.gtabase.com/articles/gta-6/gta-6-achievements-trophies-list-ps5-xbox-series',
+  'Insider Gaming': 'https://insider-gaming.com/complete-gta-6-trophy-list-how-to-get-all-trophies-achievements/',
+  RadioTimes: 'https://www.radiotimes.com/technology/gaming/gta-6-trophies-achievements-list/',
+  'Push Square': 'https://www.pushsquare.com/news/2026/11/gta-6-ps5-trophies-revealed-100percent-completion-needed-for-the-platinum',
+};
+
+function sourceLink(label) {
+  for (const [name, url] of Object.entries(SOURCE_URLS)) {
+    if (label.startsWith(name)) return { name: label, url };
+  }
+  return { name: label, url: null };
+}
+
+export function displayNameOf(trophy) {
+  return trophy.displayName || trophy.name;
+}
+
+export function gradeLabel(grade) {
+  return grade.charAt(0).toUpperCase() + grade.slice(1);
+}
+
+export function renderDetail(container, trophy, earned, onToggle) {
   if (!trophy) {
-    const hint = document.createElement('p');
-    hint.className = 'detail-empty';
-    hint.textContent = 'Select a trophy on the left to read its guide, its sources and when it can be missed.';
-    panel.append(hint);
+    container.innerHTML = '<p class="empty">Select a trophy on the left to read its guide, sources and roadmap stage.</p>';
     return;
   }
-
-  const masked = isSpoilerMasked(trophy, spoilersHidden, earned);
-  const isEarned = earned.has(trophy.id);
-
-  const title = document.createElement('h2');
-  title.textContent = masked ? 'Hidden story trophy' : trophy.displayName ?? trophy.name;
-  panel.append(title);
-
-  const official = document.createElement('p');
-  official.className = 'detail-official';
-  if (masked) {
-    official.textContent = 'Official name and description hidden until earned: turn spoilers off, or tick this trophy earned, to reveal them.';
-  } else {
-    const grade = document.createElement('strong');
-    grade.textContent = trophy.grade[0].toUpperCase() + trophy.grade.slice(1);
-    official.append('Official description: “', document.createTextNode(trophy.description), '” — ', grade);
-  }
-  panel.append(official);
-
-  const meta = document.createElement('div');
-  meta.className = 'detail-meta';
-  const tags = [];
-  tags.push({ text: trophy.grade, cls: '' });
-  tags.push({ text: trophy.kind, cls: '' });
-  if (trophy.hidden) tags.push({ text: 'Hidden on PS5', cls: 'hidden-tag' });
-  if (trophy.chapter) tags.push({ text: `Chapter ${trophy.chapter}`, cls: '' });
-  if (trophy.count) tags.push({ text: `Target: ${trophy.count.toLocaleString('en-US')}`, cls: '' });
-  tags.push({ text: `Roadmap stage ${trophy.roadmap}`, cls: '' });
-  if (trophy.missable === 'potential') tags.push({ text: 'Potentially missable', cls: 'missable' });
-  if (trophy.missable === 'unknown') tags.push({ text: 'Missable: unknown', cls: 'missable' });
-  if (trophy.method && METHOD_LABELS[trophy.method]) tags.push({ text: METHOD_LABELS[trophy.method], cls: `method-${trophy.method}` });
-  for (const tag of tags) {
-    const span = document.createElement('span');
-    span.className = `tag ${tag.cls}`.trim();
-    span.textContent = tag.text;
-    meta.append(span);
-  }
-  panel.append(meta);
-
-  if (trophy.missableNote) {
-    const box = document.createElement('div');
-    box.className = 'missable-box';
-    box.textContent = trophy.missableNote;
-    panel.append(box);
-  }
-  if (trophy.nameNote) {
-    const note = document.createElement('p');
-    note.textContent = trophy.nameNote;
-    panel.append(note);
-  }
-
-  const guideHeading = document.createElement('h3');
-  guideHeading.textContent = 'Guide';
-  panel.append(guideHeading);
-  const guide = document.createElement('p');
-  guide.className = 'detail-guide';
-  guide.textContent = masked
-    ? 'Spoiler hidden. The guide for a story trophy stays hidden until the trophy is earned or spoilers are switched off.'
-    : trophy.guide;
-  panel.append(guide);
-
-  const sourcesHeading = document.createElement('h3');
-  sourcesHeading.textContent = 'Sources';
-  panel.append(sourcesHeading);
-  const list = document.createElement('ul');
-  list.className = 'source-list';
-  for (const source of trophy.sources) {
-    const item = document.createElement('li');
-    if (source.url) {
-      const link = document.createElement('a');
-      link.href = source.url;
-      link.target = '_blank';
-      link.rel = 'noopener';
-      link.textContent = source.name;
-      item.append(link);
+  const earnedNow = isEarned(earned, trophy.id);
+  const status = trophy.status || 'confirmed';
+  const sources = (trophy.sources || []).map(sourceLink);
+  const el = document.createElement('div');
+  el.innerHTML = `
+    <h2></h2>
+    <p class="official"></p>
+    <p class="badges"></p>
+    <h3>Guide</h3>
+    <p class="guide-text"></p>
+    ${status !== 'confirmed' ? '<p class="status-note"></p>' : ''}
+    ${trophy.missable ? '<p class="status-note missable-note"></p>' : ''}
+    ${trophy.targetNote ? '<p class="target-note"></p>' : ''}
+    <h3>Sources</h3>
+    <ul class="sources"></ul>
+    <button type="button" class="earn-btn"></button>
+  `;
+  el.querySelector('h2').textContent = displayNameOf(trophy);
+  el.querySelector('.official').textContent = `“${trophy.description}” — ${gradeLabel(trophy.grade)} trophy${trophy.hidden ? ' · hidden on PS5 until earned' : ''} · roadmap stage ${trophy.stage}`;
+  const badges = el.querySelector('.badges');
+  badges.innerHTML = `<span class="badge ${trophy.grade}">${trophy.grade}</span>` +
+    (trophy.hidden ? ' <span class="badge hidden">Hidden</span>' : '') +
+    (trophy.missable ? ' <span class="badge missable">Potentially missable</span>' : '') +
+    (status !== 'confirmed' ? ` <span class="badge ${status}">${status}</span>` : '');
+  el.querySelector('.guide-text').textContent = trophy.guide;
+  if (status !== 'confirmed') el.querySelector('.status-note').textContent = STATUS_LABELS[status] + '.';
+  if (trophy.missable) el.querySelector('.missable-note').textContent = trophy.missableNote || 'Potentially missable — do it early to be safe.';
+  if (trophy.targetNote) el.querySelector('.target-note').textContent = `Target: ${trophy.targetNote}.`;
+  const list = el.querySelector('.sources');
+  for (const s of sources) {
+    const li = document.createElement('li');
+    if (s.url) {
+      const a = document.createElement('a');
+      a.href = s.url;
+      a.textContent = s.name;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      li.appendChild(a);
     } else {
-      item.textContent = `${source.name} (named source, no link on file)`;
+      li.textContent = s.name;
     }
-    list.append(item);
+    list.appendChild(li);
   }
-  const note = document.createElement('li');
-  note.textContent = 'Names and descriptions are the official PS5 list as reproduced by these guides; no Rockstar or PlayStation trophy table was published to check against directly.';
-  list.append(note);
-  panel.append(list);
-
-  const actions = document.createElement('div');
-  actions.className = 'detail-actions';
-  const toggle = document.createElement('button');
-  toggle.type = 'button';
-  toggle.className = isEarned ? 'earned-now' : '';
-  toggle.textContent = isEarned ? '✓ Earned — untick to remove' : 'Mark as earned';
-  toggle.addEventListener('click', () => onToggleEarned(trophy.id));
-  actions.append(toggle);
-  panel.append(actions);
+  const btn = el.querySelector('.earn-btn');
+  btn.textContent = earnedNow ? '✓ Earned — click to unmark' : 'Mark as earned';
+  btn.addEventListener('click', () => onToggle(trophy.id));
+  container.replaceChildren(el);
 }
